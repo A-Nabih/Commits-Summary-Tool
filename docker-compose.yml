@@ -1,0 +1,17 @@
+services:
+  git-summary:
+    build: .
+    image: git-summary:latest
+    env_file:
+      - .env
+    environment:
+      AI_PROVIDER: ${AI_PROVIDER:-none}
+      REPOS_ROOTS: ${REPOS_ROOTS:-/workspace}
+      TIMEZONE: ${TIMEZONE:-UTC}
+      TZ: ${TIMEZONE:-UTC}
+      DEBUG: ${DEBUG:-}          # enable debug via .env
+    volumes:
+      - ${HOST_REPOS_ROOT}:/workspace:rw
+      - ./:/app
+    working_dir: /app
+    command: ["bash", "/app/summarize_git_activity_gemini.sh"]
