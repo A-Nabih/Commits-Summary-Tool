@@ -5,19 +5,34 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE_PATH="${ENV_FILE:-"$SCRIPT_DIR/.env"}"
 if [ -f "$ENV_FILE_PATH" ]; then
   # Load .env but do not override variables already set in the environment
+  # Improved parsing to handle quoted values and basic multi-line support
   while IFS= read -r line || [ -n "$line" ]; do
+    # Skip empty lines and comments
     case "$line" in
       ''|\#*) continue ;;
-      *)
-        if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
-          key="${BASH_REMATCH[1]}"
-          val="${BASH_REMATCH[2]}"
-          if [ -z "${!key}" ]; then
-            eval "export $key=$val"
-          fi
-        fi
-      ;;
     esac
+    
+    # Remove leading/trailing whitespace
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    
+    # Check if line contains =
+    if [[ "$line" == *"="* ]]; then
+      key="${line%%=*}"
+      key="${key%"${key##*[![:space:]]}"}"  # trim trailing space from key
+      val="${line#*=}"
+      val="${val#"${val%%[![:space:]]*}"}"   # trim leading space from val
+      
+      # Remove quotes if present (handles both single and double quotes)
+      if [[ "$val" == \"*\" ]] || [[ "$val" == \'*\' ]]; then
+        val="${val:1:-1}"
+      fi
+      
+      # Only set if not already in environment
+      if [ -z "${!key}" ] && [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        export "$key"="$val"
+      fi
+    fi
   done < "$ENV_FILE_PATH"
 fi
 
