@@ -5,6 +5,17 @@ import argparse
 import json
 import requests
 
+# Try to load .env file if available
+try:
+    from dotenv import load_dotenv
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    env_file = os.getenv("ENV_FILE", os.path.join(script_dir, ".env"))
+    if os.path.exists(env_file):
+        load_dotenv(env_file)
+except ImportError:
+    # dotenv not available, skip loading
+    pass
+
 
 def ensure_api_key() -> str:
     key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -24,30 +35,52 @@ def cmd_text(args: argparse.Namespace) -> int:
     else:
         prompt_text = args.input
 
-    style = (os.getenv("PROMPT_STYLE") or os.getenv("SUMMARY_STYLE") or "classic").lower()
-
-    if style == "classic":
-        system_preface = (
-            "You are an expert technical writer. Produce a clean Markdown report with this exact structure:\n"
-            "# Git Activity Report\n\n"
-            "For each repository present in the input, include a section in this format:\n"
-            "## <RepositoryName>\n\n"
-            "### Recent Commits (Last N Days):\n"
-            "*   `<short_hash>` <commit_subject>\n"
-            "(one bullet per commit, keep subjects as-is; do not add extra commentary)\n\n"
-            "### Notable Uncommitted Changes:\n"
-            "*   None reported.  (if there are no uncommitted changes)\n"
-            "or list a few bullets summarizing real changes only.\n\n"
-            "Do not add generic text, disclaimers, or introductions beyond the above headings."
-        )
+    # Check for custom SUMMARY_PROMPT_FILE or SUMMARY_PROMPT first
+    prompt_file = os.getenv("SUMMARY_PROMPT_FILE", "").strip()
+    custom_prompt = None
+    
+    if prompt_file:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        if not os.path.isabs(prompt_file):
+            prompt_file = os.path.join(script_dir, prompt_file)
+        if os.path.exists(prompt_file):
+            try:
+                with open(prompt_file, "r", encoding="utf-8") as f:
+                    custom_prompt = f.read().strip()
+            except Exception as e:
+                print(f"Warning: Could not read SUMMARY_PROMPT_FILE '{prompt_file}': {e}", file=sys.stderr)
+    
+    if not custom_prompt:
+        custom_prompt = os.getenv("SUMMARY_PROMPT", "").strip()
+    
+    if custom_prompt:
+        full_prompt = f"{custom_prompt}\n\n{prompt_text}"
     else:
-        system_preface = (
-            "Summarize the following git activity into a concise, well-structured Markdown report. "
-            "Group by repository, show key commits (bulleted), and note notable uncommitted changes. "
-            "Keep it action-focused and avoid boilerplate."
-        )
+        # Fall back to PROMPT_STYLE logic
+        style = (os.getenv("PROMPT_STYLE") or os.getenv("SUMMARY_STYLE") or "classic").lower()
 
-    full_prompt = f"{system_preface}\n\n{prompt_text}"
+        if style == "classic":
+            system_preface = (
+                "You are an expert technical writer. Produce a clean Markdown report with this exact structure:\n"
+                "# Git Activity Report\n\n"
+                "For each repository present in the input, include a section in this format:\n"
+                "## <RepositoryName>\n\n"
+                "### Recent Commits (Last N Days):\n"
+                "*   `<short_hash>` <commit_subject>\n"
+                "(one bullet per commit, keep subjects as-is; do not add extra commentary)\n\n"
+                "### Notable Uncommitted Changes:\n"
+                "*   None reported.  (if there are no uncommitted changes)\n"
+                "or list a few bullets summarizing real changes only.\n\n"
+                "Do not add generic text, disclaimers, or introductions beyond the above headings."
+            )
+        else:
+            system_preface = (
+                "Summarize the following git activity into a concise, well-structured Markdown report. "
+                "Group by repository, show key commits (bulleted), and note notable uncommitted changes. "
+                "Keep it action-focused and avoid boilerplate."
+            )
+
+        full_prompt = f"{system_preface}\n\n{prompt_text}"
 
     def call_model_v1(m: str):
         url = f"https://generativelanguage.googleapis.com/v1/models/{m}:generateContent?key={api_key}"
